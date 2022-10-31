@@ -1,0 +1,205 @@
+---
+title: "Classification"
+author: "Muhammad Apriandito"
+format: html
+editor: visual
+---
+
+## Load Packages and Set Parameter
+
+```{r}
+# Load Packages
+library(tidyverse)
+library(skimr)
+library(tidymodels)
+library(randomForest)
+library(discrim)
+library(vip)
+
+
+# Set Parameter
+tidymodels_prefer()
+set.seed(1234)
+```
+
+## Load Data
+
+```{r}
+# Load Data
+df <- read_csv("data/titanic.csv")
+```
+
+## Explore Data
+
+```{r}
+# Show Data
+df
+```
+
+```{r}
+# Show Variable
+glimpse(df)
+```
+
+```{r}
+# Show Data Information
+skim(df)
+```
+
+```{r}
+# Exploration using Visualization (Histogram)
+df %>%
+  ggplot(aes(x = Age, fill = as.factor(Survived))) +
+  geom_histogram(color = "white")
+```
+
+```{r}
+# Exploration using Visualization (Bar Chart)
+df %>%
+  group_by(Sex, Survived) %>%
+  count() %>%
+  ggplot(aes(x = Sex, y = n, fill = as.factor(Survived))) +
+  geom_col(position = "dodge")
+```
+
+## Split Data / Cross Validation
+
+```{r}
+# Split Data to Training and Testing
+df_split <- initial_split(df, prop = 0.7)
+df_split
+```
+
+```{r}
+# Create Fold Validation
+folds <- vfold_cv(training(df_split), v = 5, strata = Survived)
+```
+
+## Set Target and Feature
+
+```{r}
+# Create Recipe
+df_recipe <- df %>%
+  recipe(Survived ~ Sex + Pclass + Age + SibSp + Parch + Fare) %>%
+  step_mutate_at(Survived, fn = factor, skip = TRUE) %>%
+  step_impute_median(all_numeric())
+```
+
+## Modeling
+
+### Define The Model
+
+```{r}
+# Define Decision Tree Model
+dt <- decision_tree(tree_depth = tune()) %>%
+  set_engine("rpart") %>%
+  set_mode("classification")
+
+# Define Random Forest Model
+rf <- rand_forest(trees = tune()) %>%
+  set_engine("randomForest") %>%
+  set_mode(mode = "classification")
+
+# Define ANN Model
+nn <- mlp(hidden_units = tune()) %>%
+  set_engine("nnet") %>%
+  set_mode("classification")
+
+# Define Naive Bayes Model
+nb <- naive_Bayes(smoothness = tune(), Laplace = tune()) %>%
+  set_engine("naivebayes")
+```
+
+### Set Workflow
+
+```{r}
+# Put in the workflow
+all_workflows <- workflow_set(
+  preproc = list(df_recipe),
+  models = list(dt, rf, nn, nb)
+) %>%
+  workflow_map(fn = "tune_grid", resamples = folds, verbose = TRUE)
+```
+
+```{r}
+# Rank Result
+rank_results(all_workflows, rank_metric = "roc_auc")
+```
+
+```{r}
+# Plot Rank Result
+autoplot(all_workflows, metric = "roc_auc")
+```
+
+### Finalize
+
+```{r}
+# Select Best Parameter
+best_parameter <- all_workflows %>%
+  extract_workflow_set_result(id = "recipe_rand_forest") %>%
+  select_best(metric = "roc_auc")
+```
+
+```{r}
+# Get Final Workflow
+final_workflow <- all_workflows %>%
+  extract_workflow("recipe_rand_forest") %>%
+  finalize_workflow(best_parameter) %>%
+  fit(training(df_split))
+```
+
+```{r}
+# Variable Importance Plot
+final_workflow %>%
+  extract_fit_parsnip() %>%
+  vip()
+```
+
+## Evaluation
+
+```{r}
+# Make Prediciton to Test Data
+testing(df_split) %>%
+  bind_cols(final_workflow %>% predict(testing(df_split))) %>%
+  relocate(Survived, .pred_class)
+```
+
+```{r}
+# Confussion Matrix
+testing(df_split) %>%
+  mutate(Survived = as_factor(Survived)) %>%
+  bind_cols(final_workflow %>% predict(testing(df_split))) %>%
+  conf_mat(truth = Survived, estimate = .pred_class)
+```
+
+```{r}
+# Define metric for evaluation
+multi_metrics <- metric_set(
+  accuracy,
+  sensitivity,
+  specificity,
+  recall,
+  f_meas
+)
+```
+
+```{r}
+# See Performance Evaluation
+testing(df_split) %>%
+  mutate(Survived = as_factor(Survived)) %>%
+  bind_cols(final_workflow %>% predict(testing(df_split))) %>%
+  multi_metrics(truth = Survived, estimate = .pred_class)
+```
+
+## Predict to New Data
+
+```{r}
+# Load Data
+df_new <- read_csv("data/titanic-prediction.csv")
+```
+
+```{r}
+# Prediction Result
+df_new %>%
+  bind_cols(final_workflow %>% predict(df_new))
+```

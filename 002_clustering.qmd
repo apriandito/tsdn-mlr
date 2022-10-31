@@ -1,0 +1,78 @@
+---
+title: "Classification"
+author: "Muhammad Apriandito"
+format: html
+editor: visual
+---
+
+## Load Packages and Set Parameter
+
+```{r}
+# Load Packages
+library(tidyverse)
+library(cluster)
+library(factoextra)
+
+# Set Parameter
+set.seed(123)
+```
+
+## Load Data
+
+```{r}
+# Load Data
+df <- read_csv2("data/income-spend.csv")
+```
+
+## Explore Data
+
+```{r}
+# Show Data
+df
+```
+
+```{r}
+# Visualize
+df %>%
+  ggplot(aes(x = Income, y = Spending)) +
+  geom_point()
+```
+
+```{r}
+# Select data Income dan Spending
+df_cluster <- df %>%
+  select(Income, Spending)
+```
+
+## Finding the optimal number of clusters
+
+### Elbow Method
+
+```{r}
+# Elbow Method
+fviz_nbclust(df_cluster, kmeans, method = "wss")
+```
+
+### Silhouette method
+
+```{r}
+# Silhoutte
+fviz_nbclust(df_cluster, kmeans, method = "silhouette")
+```
+
+## K-means Clustering
+
+```{r}
+# K-Means Clustering
+cluster <- kmeans(df_cluster, centers = 2)
+```
+
+```{r}
+# Show Cluster Information
+cluster
+```
+
+```{r}
+# Show Cluster Visualization
+fviz_cluster(cluster, data = df_cluster, geom = "point")
+```
